@@ -3,6 +3,8 @@ module Main where
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
+import qualified Data.Text.Encoding as T
+import qualified Data.ByteString as B
 import Data.Foldable
 import Data.Maybe
 import System.Directory
@@ -58,40 +60,92 @@ instance Monoid Bow where
 wordsCount :: Bow -> Int
 wordsCount (Bow bow) = sum $ map snd $ M.toList bow
 
-wordProbability :: Word' -> Bow -> Float
+wordProbability :: Word' -> Bow -> Double
 wordProbability w bow = fromIntegral n / fromIntegral (wordsCount bow)
     where n = fromMaybe 0 $ M.lookup w $ bowToMap bow
 
-bowFromFile :: FilePath -> IO Bow
-bowFromFile filePath =
-    textToBow <$> T.readFile filePath
+readFileIfPossbile :: FilePath -> IO (Maybe T.Text)
+readFileIfPossbile filePath = do
+  bytes <- B.readFile filePath
+  return $ case T.decodeUtf8' bytes of
+    Right text -> Just text
+    Left _ -> Nothing
+
+bowFromFile :: FilePath -> IO (Maybe Bow)
+bowFromFile filePath = do
+  contents <- readFileIfPossbile filePath
+  return (textToBow <$> contents)
 
 bowFromFolder :: FilePath -> IO Bow
 bowFromFolder folderPath = do
   fileNames <- listDirectory folderPath
   bows <- mapM (bowFromFile . (folderPath <>)) fileNames
-  return $ fold bows
+  return $ fold $ mapMaybe id bows
 
-spamBow :: IO Bow
-spamBow = bowFromFolder "./data/train/spam/"
+data SpamModel = SpamModel
+  { spamBow :: Bow
+  , hamBow :: Bow
+  }
 
-hamBow :: IO Bow
-hamBow = bowFromFolder "./data/train/ham/"
+spamModel :: IO SpamModel
+spamModel = do
+  spam <- bowFromFolder "./data/train/spam/"
+  ham <- bowFromFolder "./data/train/ham/"
+  return $ SpamModel spam ham
 
-wordProbabilitySpam :: Word' -> IO Float
-wordProbabilitySpam w = do
-  pws <- wordProbability w <$> spamBow
-  phs <- wordProbability w <$> hamBow
-  let ps = pws + phs
-  return $ if ps == 0.0 then 0.0 else pws / (pws + phs)
+seenWord :: Word' -> SpamModel -> Bool
+seenWord w (SpamModel (Bow spamBow) (Bow hamBow)) = isJust sm || isJust hm
+  where
+    sm = M.lookup w spamBow
+    hm = M.lookup w hamBow
 
-textProbabilitySpam :: T.Text -> IO Float
-textProbabilitySpam text = do
-  let ws = normalizeTextToWords text
-  ps <- mapM wordProbabilitySpam ws
-  let ips = map (\p -> 1.0 - p) ps
-  let pp = product ps
-  return (pp / (pp + product ips))
+wordProbabilitySpam :: SpamModel -> Word' -> Maybe Double
+wordProbabilitySpam sm@(SpamModel spamBow hamBow) w
+  | seenWord w sm =
+    let pws = wordProbability w spamBow
+        phs = wordProbability w hamBow
+        ps = pws + phs
+     in Just (pws / (pws + phs))
+  | otherwise = Nothing
+
+wordProbabilityHam :: SpamModel -> Word' -> Maybe Double
+wordProbabilityHam sm@(SpamModel spamBow hamBow) w
+  | seenWord w sm =
+    let pws = wordProbability w spamBow
+        phs = wordProbability w hamBow
+        ps = pws + phs
+     in Just (phs / (phs + pws))
+  | otherwise = Nothing
+
+textProbabilitySpam :: SpamModel -> T.Text -> Double
+textProbabilitySpam sm text = (pp / (pp + product ips))
+  where
+    ws = normalizeTextToWords text
+    ps = mapMaybe (wordProbabilitySpam sm) ws
+    ips = map (\p -> 1.0 - p) ps
+    pp = product ps
+
+textProbabilityHam :: SpamModel -> T.Text -> Double
+textProbabilityHam sm text = (pp / (pp + product ips))
+  where
+    ws = normalizeTextToWords text
+    ps = mapMaybe (wordProbabilityHam sm) ws
+    ips = map (\p -> 1.0 - p) ps
+    pp = product ps
+
+classifyText :: SpamModel -> T.Text -> (Double, Double)
+classifyText sm text = (textProbabilitySpam sm text, textProbabilityHam sm text)
+
+classifyFile :: SpamModel -> FilePath -> IO (Double, Double)
+classifyFile sm filePath = classifyText sm <$> T.readFile filePath
+
+classifyFolder :: SpamModel -> FilePath -> IO ()
+classifyFolder sm folderPath = do
+  fileNames <- listDirectory folderPath
+  forM_ fileNames $ \fileName -> do
+    let filePath = folderPath <> "/" <> fileName
+    stats <- classifyFile sm filePath
+    printf "%s -> %s\n" filePath (show stats)
 
 main :: IO ()
 main = putStrLn "Hello, Haskell!"
