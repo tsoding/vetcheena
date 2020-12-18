@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
 import qualified Data.Map as M
@@ -97,8 +98,8 @@ data SpamModel = SpamModel
 
 spamModel :: IO SpamModel
 spamModel = do
-  spam <- freqToProb <$> bowFromFolder "./data/train/spam/"
-  ham <- freqToProb <$> bowFromFolder "./data/train/ham/"
+  spam <- loadBowCsv "./data/spam.csv"
+  ham <- loadBowCsv "./data/ham.csv"
   return $ SpamModel spam ham
 
 seenWord :: Word' -> SpamModel -> Bool
@@ -147,5 +148,39 @@ classifyFolder sm folderPath = do
     stats <- classifyFile sm filePath
     printf "%s -> %s\n" filePath (show stats)
 
+dumpBowCsv :: Show a => Bow a -> FilePath -> IO ()
+dumpBowCsv bow filePath =
+  writeFile filePath $
+  unlines $
+  map (\(Word' word, value) -> printf "%s,%s" word (show value)) $
+  M.toList $
+  bowToMap bow
+
+loadBowCsv :: Read a => FilePath -> IO (Bow a)
+loadBowCsv filePath =
+  Bow .
+  M.fromList .
+  map
+    (\line ->
+       let [word, value] = T.splitOn "," line
+        in (Word' word, read $ T.unpack value)) .
+  T.lines <$>
+  T.readFile filePath
+
+train :: IO ()
+train = do
+  putStrLn "Training HAM..."
+  ham <- freqToProb <$> bowFromFolder "./data/train/ham/"
+  dumpBowCsv ham "./data/ham.csv"
+  putStrLn "Training SPAM..."
+  spam <- freqToProb <$> bowFromFolder "./data/train/spam/"
+  dumpBowCsv spam "./data/spam.csv"
+
 main :: IO ()
-main = putStrLn "Hello, Haskell!"
+main = do
+  sm <- spamModel
+  putStrLn "Absolute HAM:"
+  classifyFolder sm "./data/validate/ham/"
+  putStrLn ""
+  putStrLn "Absolute SPAM:"
+  classifyFolder sm "./data/validate/spam/"
