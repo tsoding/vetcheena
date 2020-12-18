@@ -64,9 +64,13 @@ instance Monoid (Bow Freq) where
 wordsCount :: Bow Freq -> Int
 wordsCount (Bow bow) = sum $ map snd $ M.toList bow
 
-wordProbability :: Word' -> Bow Freq -> Double
-wordProbability w bow = fromIntegral n / fromIntegral (wordsCount bow)
-    where n = fromMaybe 0 $ M.lookup w $ bowToMap bow
+wordProbability :: Word' -> Bow Prob -> Prob
+wordProbability w bow = fromMaybe 0 $ M.lookup w $ bowToMap bow
+
+freqToProb :: Bow Freq -> Bow Prob
+freqToProb bow = Bow $ M.map (\x -> fromIntegral x / n) $ bowToMap bow
+  where
+    n = fromIntegral $ wordsCount bow
 
 readFileIfPossbile :: FilePath -> IO (Maybe T.Text)
 readFileIfPossbile filePath = do
@@ -87,14 +91,14 @@ bowFromFolder folderPath = do
   return $ fold $ mapMaybe id bows
 
 data SpamModel = SpamModel
-  { spamBow :: Bow Freq
-  , hamBow :: Bow Freq
+  { spamBow :: !(Bow Prob)
+  , hamBow :: !(Bow Prob)
   }
 
 spamModel :: IO SpamModel
 spamModel = do
-  spam <- bowFromFolder "./data/train/spam/"
-  ham <- bowFromFolder "./data/train/ham/"
+  spam <- freqToProb <$> bowFromFolder "./data/train/spam/"
+  ham <- freqToProb <$> bowFromFolder "./data/train/ham/"
   return $ SpamModel spam ham
 
 seenWord :: Word' -> SpamModel -> Bool
@@ -129,18 +133,10 @@ textProbabilitySpam sm text = (pp / (pp + product ips))
     ips = map (\p -> 1.0 - p) ps
     pp = product ps
 
-textProbabilityHam :: SpamModel -> T.Text -> Double
-textProbabilityHam sm text = (pp / (pp + product ips))
-  where
-    ws = normalizeTextToWords text
-    ps = mapMaybe (wordProbabilityHam sm) ws
-    ips = map (\p -> 1.0 - p) ps
-    pp = product ps
+classifyText :: SpamModel -> T.Text -> Double
+classifyText sm text = textProbabilitySpam sm text
 
-classifyText :: SpamModel -> T.Text -> (Double, Double)
-classifyText sm text = (textProbabilitySpam sm text, textProbabilityHam sm text)
-
-classifyFile :: SpamModel -> FilePath -> IO (Double, Double)
+classifyFile :: SpamModel -> FilePath -> IO Double
 classifyFile sm filePath = classifyText sm <$> T.readFile filePath
 
 classifyFolder :: SpamModel -> FilePath -> IO ()
