@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 module Main where
 
 import qualified Data.Map as M
@@ -24,11 +25,14 @@ mkWord = Word' . T.toUpper
 wordToText :: Word' -> T.Text
 wordToText (Word' t) = t
 
-newtype Bow = Bow
-  { bowToMap :: M.Map Word' Int
+type Freq = Int
+type Prob = Double
+
+newtype Bow a = Bow
+  { bowToMap :: M.Map Word' a
   } deriving (Show, Read)
 
-summaryBow :: Bow -> IO ()
+summaryBow :: Bow Freq -> IO ()
 summaryBow (Bow bow) = do
   forM_ (sortBy (compare `on` snd) $ M.toList bow) $ \(w, f) ->
     printf "%s -> %d\n" (wordToText w) f
@@ -43,24 +47,24 @@ normalizeTextToWords =
          then x
          else ' ')
 
-wordToBow :: Word' -> Bow
+wordToBow :: Word' -> Bow Freq
 wordToBow w = Bow $ M.fromList [(w, 1)]
 
-textToBow :: T.Text -> Bow
+textToBow :: T.Text -> Bow Freq
 textToBow = foldMap wordToBow . normalizeTextToWords
 
 emptyBow = Bow M.empty
 
-instance Semigroup Bow where
+instance Semigroup (Bow Freq) where
   Bow bow1 <> Bow bow2 = Bow $ M.unionWith (+) bow1 bow2
 
-instance Monoid Bow where
+instance Monoid (Bow Freq) where
   mempty = emptyBow
 
-wordsCount :: Bow -> Int
+wordsCount :: Bow Freq -> Int
 wordsCount (Bow bow) = sum $ map snd $ M.toList bow
 
-wordProbability :: Word' -> Bow -> Double
+wordProbability :: Word' -> Bow Freq -> Double
 wordProbability w bow = fromIntegral n / fromIntegral (wordsCount bow)
     where n = fromMaybe 0 $ M.lookup w $ bowToMap bow
 
@@ -71,20 +75,20 @@ readFileIfPossbile filePath = do
     Right text -> Just text
     Left _ -> Nothing
 
-bowFromFile :: FilePath -> IO (Maybe Bow)
+bowFromFile :: FilePath -> IO (Maybe (Bow Freq))
 bowFromFile filePath = do
   contents <- readFileIfPossbile filePath
   return (textToBow <$> contents)
 
-bowFromFolder :: FilePath -> IO Bow
+bowFromFolder :: FilePath -> IO (Bow Freq)
 bowFromFolder folderPath = do
   fileNames <- listDirectory folderPath
   bows <- mapM (bowFromFile . (folderPath <>)) fileNames
   return $ fold $ mapMaybe id bows
 
 data SpamModel = SpamModel
-  { spamBow :: Bow
-  , hamBow :: Bow
+  { spamBow :: Bow Freq
+  , hamBow :: Bow Freq
   }
 
 spamModel :: IO SpamModel
