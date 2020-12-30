@@ -117,15 +117,6 @@ wordProbabilitySpam sm@(SpamModel spamBow hamBow) w
      in Just (pws / (pws + phs))
   | otherwise = Nothing
 
-wordProbabilityHam :: SpamModel -> Word' -> Maybe Double
-wordProbabilityHam sm@(SpamModel spamBow hamBow) w
-  | seenWord w sm =
-    let pws = wordProbability w spamBow
-        phs = wordProbability w hamBow
-        ps = pws + phs
-     in Just (phs / (phs + pws))
-  | otherwise = Nothing
-
 textProbabilitySpam :: SpamModel -> T.Text -> Double
 textProbabilitySpam sm text = (pp / (pp + product ips))
   where
