@@ -2,6 +2,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
+import Prelude hiding (Word)
+
 import qualified Data.Map as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -16,21 +18,21 @@ import Control.Monad
 import Data.List
 import Data.Function
 
-newtype Word' =
-  Word' T.Text
+newtype Word =
+  Word T.Text
   deriving (Show, Read, Eq, Ord)
 
-mkWord :: T.Text -> Word'
-mkWord = Word' . T.toUpper
+mkWord :: T.Text -> Word
+mkWord = Word . T.toUpper
 
-wordToText :: Word' -> T.Text
-wordToText (Word' t) = t
+wordToText :: Word -> T.Text
+wordToText (Word t) = t
 
 type Freq = Int
 type Prob = Double
 
 newtype Bow a = Bow
-  { bowToMap :: M.Map Word' a
+  { bowToMap :: M.Map Word a
   } deriving (Show, Read)
 
 summaryBow :: Bow Freq -> IO ()
@@ -38,7 +40,7 @@ summaryBow (Bow bow) = do
   forM_ (sortBy (compare `on` snd) $ M.toList bow) $ \(w, f) ->
     printf "%s -> %d\n" (wordToText w) f
 
-normalizeTextToWords :: T.Text -> [Word']
+normalizeTextToWords :: T.Text -> [Word]
 normalizeTextToWords =
   map mkWord .
   T.words .
@@ -48,7 +50,7 @@ normalizeTextToWords =
          then x
          else ' ')
 
-wordToBow :: Word' -> Bow Freq
+wordToBow :: Word -> Bow Freq
 wordToBow w = Bow $ M.fromList [(w, 1)]
 
 textToBow :: T.Text -> Bow Freq
@@ -65,7 +67,7 @@ instance Monoid (Bow Freq) where
 wordsCount :: Bow Freq -> Int
 wordsCount (Bow bow) = sum $ map snd $ M.toList bow
 
-wordProbability :: Word' -> Bow Prob -> Prob
+wordProbability :: Word -> Bow Prob -> Prob
 wordProbability w bow = fromMaybe 0 $ M.lookup w $ bowToMap bow
 
 freqToProb :: Bow Freq -> Bow Prob
@@ -102,13 +104,13 @@ spamModel = do
   ham <- loadBowCsv "./data/ham.csv"
   return $ SpamModel spam ham
 
-seenWord :: Word' -> SpamModel -> Bool
+seenWord :: Word -> SpamModel -> Bool
 seenWord w (SpamModel (Bow spamBow) (Bow hamBow)) = isJust sm || isJust hm
   where
     sm = M.lookup w spamBow
     hm = M.lookup w hamBow
 
-wordProbabilitySpam :: SpamModel -> Word' -> Maybe Double
+wordProbabilitySpam :: SpamModel -> Word -> Maybe Double
 wordProbabilitySpam sm@(SpamModel spamBow hamBow) w
   | seenWord w sm =
     let pws = wordProbability w spamBow
@@ -143,7 +145,7 @@ dumpBowCsv :: Show a => Bow a -> FilePath -> IO ()
 dumpBowCsv bow filePath =
   writeFile filePath $
   unlines $
-  map (\(Word' word, value) -> printf "%s,%s" word (show value)) $
+  map (\(Word word, value) -> printf "%s,%s" word (show value)) $
   M.toList $
   bowToMap bow
 
@@ -154,7 +156,7 @@ loadBowCsv filePath =
   map
     (\line ->
        let [word, value] = T.splitOn "," line
-        in (Word' word, read $ T.unpack value)) .
+        in (Word word, read $ T.unpack value)) .
   T.lines <$>
   T.readFile filePath
 
